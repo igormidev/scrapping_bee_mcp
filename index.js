@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
@@ -24,17 +24,10 @@ if (!SCRAPINGBEE_API_KEY) {
  */
 class ScrapingBeeMcpServer {
   constructor() {
-    this.server = new Server(
-      {
-        name: 'scraping-bee-mcp',
-        version: '1.0.0',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
+    this.server = new McpServer({
+      name: 'scraping-bee-mcp',
+      version: '1.0.0',
+    });
 
     this.setupToolHandlers();
 
