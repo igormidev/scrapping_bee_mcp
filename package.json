@@ -1,0 +1,34 @@
+{
+  "name": "scraping-bee-mcp",
+  "version": "1.0.0",
+  "description": "ScrapingBee MCP server for testing web scraping extract rules",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "mcp",
+    "scraping",
+    "scrapingbee",
+    "web-scraping",
+    "data-extraction"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "dotenv": "^16.4.7"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/scraping-bee-mcp.git"
+  },
+  "mcp": {
+    "server": {
+      "command": "node",
+      "args": ["index.js"]
+    }
+  }
+}
