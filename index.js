@@ -8,7 +8,6 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import dotenv from 'dotenv';
 
-// Load environment variables
 dotenv.config();
 
 const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
@@ -24,14 +23,20 @@ if (!SCRAPINGBEE_API_KEY) {
  */
 class ScrapingBeeMcpServer {
   constructor() {
-    this.server = new McpServer({
-      name: 'scraping-bee-mcp',
-      version: '1.0.0',
-    });
+    this.server = new McpServer(
+      {
+        name: 'scraping-bee-mcp',
+        version: '1.0.7',
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      }
+    );
 
     this.setupToolHandlers();
 
-    // Error handling
     this.server.onerror = (error) => console.error('[MCP Error]', error);
     process.on('SIGINT', async () => {
       await this.server.close();
@@ -39,16 +44,13 @@ class ScrapingBeeMcpServer {
     });
   }
 
-  /**
-   * Setup tool handlers for the MCP server
-   */
   setupToolHandlers() {
-    // List available tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
         {
           name: 'test_extract_rules',
-          description: 'Test web scraping extract rules using ScrapingBee API. ' +
+          description:
+            'Test web scraping extract rules using ScrapingBee API. ' +
             'Extracts structured data from web pages using CSS/XPath selectors.',
           inputSchema: {
             type: 'object',
@@ -59,40 +61,48 @@ class ScrapingBeeMcpServer {
               },
               extract_rules: {
                 type: 'string',
-                description: 'JSON-encoded string describing what to extract ' +
+                description:
+                  'JSON-encoded string describing what to extract ' +
                   '(CSS/XPath selectors, lists, attributes, tables, etc.)',
               },
               js_scenario: {
                 type: 'string',
-                description: 'Optional JSON-encoded string of scripted actions ' +
+                description:
+                  'Optional JSON-encoded string of scripted actions ' +
                   '(click/type/scroll/infinite-scroll/etc.) to run before extraction',
               },
               render_js: {
                 type: 'boolean',
-                description: 'Enable a headless browser to execute JavaScript before extraction',
+                description:
+                  'Enable a headless browser to execute JavaScript before extraction',
               },
               wait: {
                 type: 'integer',
-                description: 'Fixed delay in milliseconds before returning the response (0-35000)',
+                description:
+                  'Fixed delay in milliseconds before returning the response (0-35000)',
                 minimum: 0,
                 maximum: 35000,
               },
               wait_for: {
                 type: 'string',
-                description: 'CSS/XPath selector to wait for before returning',
+                description:
+                  'CSS/XPath selector to wait for before returning',
               },
               wait_browser: {
                 type: 'string',
-                description: 'Browser event to wait for (e.g., domcontentloaded)',
+                description:
+                  'Browser event to wait for (e.g., domcontentloaded)',
                 enum: ['domcontentloaded', 'load', 'networkidle0', 'networkidle2'],
               },
               premium_proxy: {
                 type: 'boolean',
-                description: 'Use residential proxy for scraper-resistant sites',
+                description:
+                  'Use residential proxy for scraper-resistant sites',
               },
               stealth_proxy: {
                 type: 'boolean',
-                description: 'Use stealth proxy for the hardest-to-scrape sites (most expensive option)',
+                description:
+                  'Use stealth proxy for the hardest-to-scrape sites (most expensive option)',
               },
               country_code: {
                 type: 'string',
@@ -101,11 +111,13 @@ class ScrapingBeeMcpServer {
               },
               session_id: {
                 type: 'integer',
-                description: 'Keep the same IP across multiple requests (sticky sessions)',
+                description:
+                  'Keep the same IP across multiple requests (sticky sessions)',
               },
               custom_google: {
                 type: 'boolean',
-                description: 'Enable Google-specific handling (always true for Google domains)',
+                description:
+                  'Enable Google-specific handling (always true for Google domains)',
               },
             },
             required: ['url', 'extract_rules'],
@@ -114,29 +126,21 @@ class ScrapingBeeMcpServer {
       ],
     }));
 
-    // Handle tool calls
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) =>
-      this.handleToolCall(request)
+    this.server.setRequestHandler(
+      CallToolRequestSchema,
+      async (request) => this.handleToolCall(request)
     );
   }
 
-  /**
-   * Handle tool call requests
-   */
   async handleToolCall(request) {
     if (request.params.name !== 'test_extract_rules') {
       throw new Error(`Unknown tool: ${request.params.name}`);
     }
-
     return await this.testExtractRules(request.params.arguments || {});
   }
 
-  /**
-   * Test extract rules using ScrapingBee API
-   */
   async testExtractRules(args) {
     try {
-      // Extract required parameters
       const { url, extract_rules } = args;
 
       if (!url || !extract_rules) {
@@ -144,18 +148,21 @@ class ScrapingBeeMcpServer {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
-                success: false,
-                error: 'Missing required parameters',
-                message: 'Both url and extract_rules are required',
-              }, null, 2),
+              text: JSON.stringify(
+                {
+                  success: false,
+                  error: 'Missing required parameters',
+                  message: 'Both url and extract_rules are required',
+                },
+                null,
+                2
+              ),
             },
           ],
           isError: true,
         };
       }
 
-      // Validate extract_rules is valid JSON
       let extractRulesObj;
       try {
         extractRulesObj = JSON.parse(extract_rules);
@@ -164,18 +171,22 @@ class ScrapingBeeMcpServer {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
-                success: false,
-                error: `Invalid extract_rules JSON: ${e.message}`,
-                message: 'The extract_rules parameter must be a valid JSON string',
-              }, null, 2),
+              text: JSON.stringify(
+                {
+                  success: false,
+                  error: `Invalid extract_rules JSON: ${e.message}`,
+                  message:
+                    'The extract_rules parameter must be a valid JSON string',
+                },
+                null,
+                2
+              ),
             },
           ],
           isError: true,
         };
       }
 
-      // Validate js_scenario if provided
       let jsScenarioObj;
       if (args.js_scenario) {
         try {
@@ -185,11 +196,16 @@ class ScrapingBeeMcpServer {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  success: false,
-                  error: `Invalid js_scenario JSON: ${e.message}`,
-                  message: 'The js_scenario parameter must be a valid JSON string',
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    success: false,
+                    error: `Invalid js_scenario JSON: ${e.message}`,
+                    message:
+                      'The js_scenario parameter must be a valid JSON string',
+                  },
+                  null,
+                  2
+                ),
               },
             ],
             isError: true,
@@ -197,55 +213,64 @@ class ScrapingBeeMcpServer {
         }
       }
 
-      // Validate wait parameter
       if (args.wait !== undefined && (args.wait < 0 || args.wait > 35000)) {
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
-                success: false,
-                error: 'Invalid wait value',
-                message: 'Wait must be between 0 and 35000 milliseconds',
-              }, null, 2),
+              text: JSON.stringify(
+                {
+                  success: false,
+                  error: 'Invalid wait value',
+                  message: 'Wait must be between 0 and 35000 milliseconds',
+                },
+                null,
+                2
+              ),
             },
           ],
           isError: true,
         };
       }
 
-      // Validate country_code if provided
       if (args.country_code && !/^[a-z]{2}$/.test(args.country_code)) {
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
-                success: false,
-                error: 'Invalid country_code',
-                message: 'Country code must be a 2-letter lowercase code (e.g., us, de, br)',
-              }, null, 2),
+              text: JSON.stringify(
+                {
+                  success: false,
+                  error: 'Invalid country_code',
+                  message:
+                    'Country code must be a 2-letter lowercase code (e.g., us, de, br)',
+                },
+                null,
+                2
+              ),
             },
           ],
           isError: true,
         };
       }
 
-      // Build ScrapingBee API request
       const result = await this.callScrapingBeeApi(url, args);
 
-      // Return successful result
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({
-              success: true,
-              data: result,
-              message: 'Data extracted successfully',
-              url: url,
-              rules_applied: extractRulesObj,
-            }, null, 2),
+            text: JSON.stringify(
+              {
+                success: true,
+                data: result,
+                message: 'Data extracted successfully',
+                url,
+                rules_applied: extractRulesObj,
+              },
+              null,
+              2
+            ),
           },
         ],
       };
@@ -254,11 +279,16 @@ class ScrapingBeeMcpServer {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({
-              success: false,
-              error: error.message,
-              message: 'An unexpected error occurred while processing the request',
-            }, null, 2),
+            text: JSON.stringify(
+              {
+                success: false,
+                error: error.message,
+                message:
+                  'An unexpected error occurred while processing the request',
+              },
+              null,
+              2
+            ),
           },
         ],
         isError: true,
@@ -266,18 +296,13 @@ class ScrapingBeeMcpServer {
     }
   }
 
-  /**
-   * Call ScrapingBee API with the provided parameters
-   */
   async callScrapingBeeApi(url, params) {
-    // Build query parameters
     const queryParams = new URLSearchParams({
       api_key: SCRAPINGBEE_API_KEY,
-      url: url,
+      url,
       extract_rules: params.extract_rules,
     });
 
-    // Add optional parameters
     if (params.js_scenario) {
       queryParams.append('js_scenario', params.js_scenario);
     }
@@ -309,7 +334,6 @@ class ScrapingBeeMcpServer {
       queryParams.append('custom_google', params.custom_google.toString());
     }
 
-    // Make API request
     const apiUrl = `https://app.scrapingbee.com/api/v1/?${queryParams.toString()}`;
 
     const response = await fetch(apiUrl);
@@ -319,14 +343,9 @@ class ScrapingBeeMcpServer {
       throw new Error(`ScrapingBee API error (${response.status}): ${errorText}`);
     }
 
-    // Parse and return the JSON response
-    const data = await response.json();
-    return data;
+    return await response.json();
   }
 
-  /**
-   * Start the MCP server
-   */
   async run() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
@@ -334,6 +353,5 @@ class ScrapingBeeMcpServer {
   }
 }
 
-// Start the server
 const server = new ScrapingBeeMcpServer();
 server.run().catch(console.error);
