@@ -1,6 +1,6 @@
 {
   "name": "scraping-bee-mcp",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "description": "ScrapingBee MCP server for testing web scraping extract rules",
   "main": "index.js",
   "bin": {
@@ -21,7 +21,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@modelcontextprotocol/sdk": "1.0.4",
     "dotenv": "^16.4.7"
   },
   "repository": {
