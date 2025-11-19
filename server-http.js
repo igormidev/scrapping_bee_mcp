@@ -10,11 +10,14 @@ import express from 'express';
 import cors from 'cors';
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  exposedHeaders: ['Mcp-Session-Id']
+}));
 app.use(express.json());
 
-// Store active transports
-const transports = new Map();
+// Store active transports by session ID
+const transports = {};
 
 /**
  * ScrapingBee MCP Server - HTTP/SSE Version
@@ -368,40 +371,54 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'scraping-bee-mcp' });
 });
 
-// SSE endpoint for MCP connections
+// SSE endpoint for MCP connections (deprecated HTTP+SSE transport)
 app.get('/sse', async (req, res) => {
-  console.log('New SSE connection');
+  console.log('New SSE connection established');
 
-  const mcpServer = new ScrapingBeeMcpServer();
-  const transport = new SSEServerTransport('/message', res);
+  const transport = new SSEServerTransport('/messages', res);
+  transports[transport.sessionId] = transport;
 
-  // Store transport for message routing
-  const sessionId = Date.now().toString();
-  transports.set(sessionId, { transport, server: mcpServer.server });
+  console.log(`Session created: ${transport.sessionId}`);
 
   res.on('close', () => {
-    console.log('SSE connection closed');
-    transports.delete(sessionId);
+    console.log(`SSE connection closed for session: ${transport.sessionId}`);
+    delete transports[transport.sessionId];
   });
 
+  const mcpServer = new ScrapingBeeMcpServer();
   await mcpServer.server.connect(transport);
 });
 
-// Message endpoint for client-to-server communication
-app.post('/message', async (req, res) => {
-  // Find the transport that matches this request
-  // In production, you'd want proper session management
-  const lastTransport = Array.from(transports.values()).pop();
+// Messages endpoint for client-to-server communication
+app.post('/messages', async (req, res) => {
+  const sessionId = req.query.sessionId;
+  console.log(`Received message for session: ${sessionId}`);
 
-  if (lastTransport) {
+  const transport = transports[sessionId];
+
+  if (transport instanceof SSEServerTransport) {
     try {
-      await lastTransport.transport.handlePostMessage(req, res);
+      await transport.handlePostMessage(req, res, req.body);
     } catch (error) {
       console.error('Error handling message:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({
+        jsonrpc: '2.0',
+        error: {
+          code: -32603,
+          message: 'Internal server error'
+        },
+        id: null
+      });
     }
   } else {
-    res.status(404).json({ error: 'No active session' });
+    res.status(400).json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32000,
+        message: 'Bad Request: No transport found for sessionId'
+      },
+      id: null
+    });
   }
 });
 
@@ -409,6 +426,28 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log(`ScrapingBee MCP server (HTTP/SSE) running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`SSE endpoint: http://localhost:${PORT}/sse`);
+  console.log(`
+==============================================
+ENDPOINTS:
+- Health check: /health
+- SSE endpoint: /sse (GET)
+- Messages: /messages?sessionId=<id> (POST)
+==============================================
+`);
+});
+
+// Handle server shutdown
+process.on('SIGINT', async () => {
+  console.log('Shutting down server...');
+  for (const sessionId in transports) {
+    try {
+      console.log(`Closing transport for session ${sessionId}`);
+      await transports[sessionId].close();
+      delete transports[sessionId];
+    } catch (error) {
+      console.error(`Error closing transport for session ${sessionId}:`, error);
+    }
+  }
+  console.log('Server shutdown complete');
+  process.exit(0);
 });
