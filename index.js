@@ -10,13 +10,6 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
-
-if (!SCRAPINGBEE_API_KEY) {
-  console.error('Error: SCRAPINGBEE_API_KEY environment variable is not set');
-  process.exit(1);
-}
-
 /**
  * ScrapingBee MCP Server
  * Provides tools for testing web scraping extract rules using the ScrapingBee API
@@ -297,8 +290,14 @@ class ScrapingBeeMcpServer {
   }
 
   async callScrapingBeeApi(url, params) {
+    const apiKey = process.env.SCRAPINGBEE_API_KEY;
+
+    if (!apiKey) {
+      throw new Error('SCRAPINGBEE_API_KEY environment variable is not set');
+    }
+
     const queryParams = new URLSearchParams({
-      api_key: SCRAPINGBEE_API_KEY,
+      api_key: apiKey,
       url,
       extract_rules: params.extract_rules,
     });
