@@ -22,7 +22,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.0.4",
+    "@modelcontextprotocol/sdk": "^1.22.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.0"
@@ -37,7 +37,9 @@
   "mcp": {
     "server": {
       "command": "node",
-      "args": ["index.js"]
+      "args": [
+        "index.js"
+      ]
     }
   }
 }
