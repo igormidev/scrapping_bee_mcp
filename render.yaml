@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: scraping-bee-mcp
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run start:http
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production

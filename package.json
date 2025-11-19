@@ -9,6 +9,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
+    "start:http": "node server-http.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -22,11 +23,16 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.0.4",
-    "dotenv": "^16.4.7"
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/scraping-bee-mcp.git"
+    "url": "https://github.com/igormidev/scrapping_bee_mcp.git"
   },
   "mcp": {
     "server": {

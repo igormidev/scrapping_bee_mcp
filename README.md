@@ -129,11 +129,63 @@ Extract rules are defined as a JSON object where keys are the names of the data 
 
 ## Development
 
-Run the server locally:
+Run the server locally (stdio mode):
 
 ```bash
 npm start
 ```
+
+Run the HTTP/SSE server locally:
+
+```bash
+npm run start:http
+```
+
+## Remote Hosting
+
+The MCP server can be hosted remotely using the HTTP/SSE transport. The hosted version requires users to provide their own ScrapingBee API key with each request.
+
+### Railway (Recommended)
+
+1. Install Railway CLI: `npm install -g @railway/cli`
+2. Login: `railway login`
+3. Create project: `railway init`
+4. Deploy: `railway up`
+5. Your MCP server will be available at the Railway-provided URL
+
+### Render
+
+1. Connect your GitHub repository to Render
+2. Create a new Web Service
+3. Select the repository
+4. Render will automatically detect the `render.yaml` configuration
+5. Deploy
+
+### Fly.io
+
+1. Install Fly CLI: `curl -L https://fly.io/install.sh | sh`
+2. Login: `fly auth login`
+3. Launch: `fly launch`
+4. Deploy: `fly deploy`
+
+### Docker
+
+Build and run locally:
+
+```bash
+docker build -t scraping-bee-mcp .
+docker run -p 3000:3000 scraping-bee-mcp
+```
+
+### Connecting to Hosted Server
+
+Once deployed, connect to your MCP server using the SSE endpoint:
+
+- SSE Endpoint: `https://your-server-url/sse`
+- Message Endpoint: `https://your-server-url/message`
+- Health Check: `https://your-server-url/health`
+
+**Note:** The hosted version requires the `api_key` parameter in each tool call, allowing users to use their own ScrapingBee API keys.
 
 ## Requirements
 
