@@ -393,18 +393,36 @@ async function testExtractRules(args) {
     // Check for empty results and provide helpful feedback
     const isEmpty = checkIfEmpty(data);
 
+    // CRITICAL: Return success: false when extraction is empty
+    // This ensures the AI knows the selectors didn't work and should NOT return these rules
+    if (isEmpty) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            error: 'EXTRACTION_EMPTY',
+            data,
+            message: 'FAILED: Extraction returned empty results. The CSS selectors do NOT match any elements on the page. You MUST NOT return these rules as working. Try: 1) Verify selectors exist in the HTML, 2) Enable render_js=true for JavaScript-heavy pages, 3) Add wait or wait_for for dynamically loaded content, 4) Use premium_proxy=true for protected sites.',
+            url,
+            rules_attempted: extractRulesObj,
+            isEmpty: true
+          }, null, 2)
+        }],
+        isError: true
+      };
+    }
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: true,
           data,
-          message: isEmpty
-            ? 'Extraction completed but returned empty results. The CSS selectors may not match any elements on the page. Try: 1) Verify selectors in browser DevTools, 2) Enable render_js=true for dynamic pages, 3) Add wait or wait_for for content that loads after page load.'
-            : 'Data extracted successfully',
+          message: 'Data extracted successfully',
           url,
           rules_applied: extractRulesObj,
-          isEmpty
+          isEmpty: false
         }, null, 2)
       }]
     };
