@@ -34,11 +34,11 @@ const tools = [
         },
         extract_rules: {
           type: 'string',
-          description: 'JSON-encoded string describing what to extract. Examples: {"title": "h1"} for simple selector, {"items": {"selector": ".item", "type": "list", "output": {"name": ".name", "price": ".price"}}} for lists'
+          description: 'JSON-encoded string describing what to extract. Use simple format for single fields: {"title": "h1"}. Use list format for arrays: {"items": {"selector": ".item", "type": "list", "output": {"name": ".name"}}}. IMPORTANT: ScrapingBee uses a LIMITED CSS subset - avoid :nth-of-type(), :nth-child(), :not(), :has() and other pseudo-selectors. Use class names and IDs instead.'
         },
         js_scenario: {
           type: 'string',
-          description: 'Optional JSON-encoded string of scripted actions (click/type/scroll/infinite-scroll) to run before extraction'
+          description: 'Optional JSON-encoded string. MUST be an object with "instructions" array: {"instructions": [{"wait": 1000}, {"click": ".button"}]}. NEVER pass empty array [] - omit this parameter if no actions needed. Available actions: wait (ms), click (selector), fill (selector+value), scroll_y (pixels), wait_for (selector). See https://www.scrapingbee.com/documentation/javascript-scenario/'
         },
         render_js: {
           type: 'boolean',

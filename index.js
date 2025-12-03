@@ -2,10 +2,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -13,13 +10,15 @@ dotenv.config();
 /**
  * ScrapingBee MCP Server
  * Provides tools for testing web scraping extract rules using the ScrapingBee API
+ *
+ * Updated to use MCP SDK v1.22.0 API
  */
 class ScrapingBeeMcpServer {
   constructor() {
     this.server = new McpServer(
       {
         name: 'scraping-bee-mcp',
-        version: '1.0.7',
+        version: '2.0.0',
       },
       {
         capabilities: {
@@ -30,7 +29,8 @@ class ScrapingBeeMcpServer {
 
     this.setupToolHandlers();
 
-    this.server.onerror = (error) => console.error('[MCP Error]', error);
+    // Error handler is on the inner server instance
+    this.server.server.onerror = (error) => console.error('[MCP Error]', error);
     process.on('SIGINT', async () => {
       await this.server.close();
       process.exit(0);
@@ -38,98 +38,50 @@ class ScrapingBeeMcpServer {
   }
 
   setupToolHandlers() {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
-        {
-          name: 'test_extract_rules',
-          description:
-            'Test web scraping extract rules using ScrapingBee API. ' +
-            'Extracts structured data from web pages using CSS/XPath selectors.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              url: {
-                type: 'string',
-                description: 'The target page URL to scrape',
-              },
-              extract_rules: {
-                type: 'string',
-                description:
-                  'JSON-encoded string describing what to extract ' +
-                  '(CSS/XPath selectors, lists, attributes, tables, etc.)',
-              },
-              js_scenario: {
-                type: 'string',
-                description:
-                  'Optional JSON-encoded string of scripted actions ' +
-                  '(click/type/scroll/infinite-scroll/etc.) to run before extraction',
-              },
-              render_js: {
-                type: 'boolean',
-                description:
-                  'Enable a headless browser to execute JavaScript before extraction',
-              },
-              wait: {
-                type: 'integer',
-                description:
-                  'Fixed delay in milliseconds before returning the response (0-35000)',
-                minimum: 0,
-                maximum: 35000,
-              },
-              wait_for: {
-                type: 'string',
-                description:
-                  'CSS/XPath selector to wait for before returning',
-              },
-              wait_browser: {
-                type: 'string',
-                description:
-                  'Browser event to wait for (e.g., domcontentloaded)',
-                enum: ['domcontentloaded', 'load', 'networkidle0', 'networkidle2'],
-              },
-              premium_proxy: {
-                type: 'boolean',
-                description:
-                  'Use residential proxy for scraper-resistant sites',
-              },
-              stealth_proxy: {
-                type: 'boolean',
-                description:
-                  'Use stealth proxy for the hardest-to-scrape sites (most expensive option)',
-              },
-              country_code: {
-                type: 'string',
-                description: 'Proxy geolocation (e.g., us, de, br)',
-                pattern: '^[a-z]{2}$',
-              },
-              session_id: {
-                type: 'integer',
-                description:
-                  'Keep the same IP across multiple requests (sticky sessions)',
-              },
-              custom_google: {
-                type: 'boolean',
-                description:
-                  'Enable Google-specific handling (always true for Google domains)',
-              },
-            },
-            required: ['url', 'extract_rules'],
-          },
-        },
-      ],
-    }));
-
-    this.server.setRequestHandler(
-      CallToolRequestSchema,
-      async (request) => this.handleToolCall(request)
+    // Register tool using the new SDK API with Zod schemas
+    this.server.tool(
+      'test_extract_rules',
+      'Test web scraping extract rules using ScrapingBee API. Extracts structured data from web pages using CSS/XPath selectors.',
+      {
+        url: z.string().describe('The target page URL to scrape'),
+        extract_rules: z.string().describe(
+          'JSON-encoded string describing what to extract. Use simple format for single fields: {"title": "h1"}. Use list format for arrays: {"items": {"selector": ".item", "type": "list", "output": {"name": ".name"}}}. IMPORTANT: ScrapingBee uses a LIMITED CSS subset - avoid :nth-of-type(), :nth-child(), :not(), :has() and other pseudo-selectors. Use class names and IDs instead.'
+        ),
+        js_scenario: z.string().optional().describe(
+          'Optional JSON-encoded string. MUST be an object with "instructions" array: {"instructions": [{"wait": 1000}, {"click": ".button"}]}. NEVER pass empty array [] - omit this parameter if no actions needed. Available actions: wait (ms), click (selector), fill (selector+value), scroll_y (pixels), wait_for (selector).'
+        ),
+        render_js: z.boolean().optional().describe(
+          'Enable a headless browser to execute JavaScript before extraction'
+        ),
+        wait: z.number().int().min(0).max(35000).optional().describe(
+          'Fixed delay in milliseconds before returning the response (0-35000)'
+        ),
+        wait_for: z.string().optional().describe(
+          'CSS/XPath selector to wait for before returning'
+        ),
+        wait_browser: z.enum(['domcontentloaded', 'load', 'networkidle0', 'networkidle2']).optional().describe(
+          'Browser event to wait for (e.g., domcontentloaded)'
+        ),
+        premium_proxy: z.boolean().optional().describe(
+          'Use residential proxy for scraper-resistant sites'
+        ),
+        stealth_proxy: z.boolean().optional().describe(
+          'Use stealth proxy for the hardest-to-scrape sites (most expensive option)'
+        ),
+        country_code: z.string().regex(/^[a-z]{2}$/).optional().describe(
+          'Proxy geolocation (e.g., us, de, br)'
+        ),
+        session_id: z.number().int().optional().describe(
+          'Keep the same IP across multiple requests (sticky sessions)'
+        ),
+        custom_google: z.boolean().optional().describe(
+          'Enable Google-specific handling (always true for Google domains)'
+        ),
+      },
+      async (args) => {
+        return await this.testExtractRules(args);
+      }
     );
-  }
-
-  async handleToolCall(request) {
-    if (request.params.name !== 'test_extract_rules') {
-      throw new Error(`Unknown tool: ${request.params.name}`);
-    }
-    return await this.testExtractRules(request.params.arguments || {});
   }
 
   async testExtractRules(args) {
