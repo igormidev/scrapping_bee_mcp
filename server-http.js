@@ -4,6 +4,216 @@ import http from 'http';
 
 const PORT = process.env.PORT || 3000;
 
+/**
+ * Parse ScrapingBee API error response to extract detailed error information
+ * @param {number} statusCode - HTTP status code
+ * @param {string} responseText - Raw response text from API
+ * @param {string} url - The URL being scraped
+ * @returns {object} Structured error information
+ */
+function parseScrapingBeeError(statusCode, responseText, url) {
+  const errorInfo = {
+    statusCode,
+    statusText: getHttpStatusText(statusCode),
+    rawResponse: responseText?.substring(0, 1000) || 'No response body',
+    url,
+    timestamp: new Date().toISOString(),
+    possibleCauses: [],
+    suggestions: []
+  };
+
+  // Try to parse JSON error response
+  try {
+    const parsed = JSON.parse(responseText);
+    if (parsed.error) errorInfo.apiError = parsed.error;
+    if (parsed.message) errorInfo.apiMessage = parsed.message;
+  } catch (e) {
+    // Response is not JSON, keep raw text
+  }
+
+  // Add context based on status code
+  switch (statusCode) {
+    case 400:
+      errorInfo.possibleCauses = [
+        'Invalid URL format or encoding',
+        'Malformed extract_rules JSON',
+        'Invalid parameter combination',
+        'Missing required parameters'
+      ];
+      errorInfo.suggestions = [
+        'Ensure URL is properly encoded',
+        'Validate extract_rules JSON syntax',
+        'Check parameter types match schema'
+      ];
+      break;
+    case 401:
+      errorInfo.possibleCauses = [
+        'Invalid or missing API key',
+        'API key has expired',
+        'API key does not have required permissions'
+      ];
+      errorInfo.suggestions = [
+        'Verify api_key parameter is provided',
+        'Check API key is valid at scrapingbee.com dashboard'
+      ];
+      break;
+    case 402:
+      errorInfo.possibleCauses = [
+        'Insufficient API credits',
+        'Account credit limit reached'
+      ];
+      errorInfo.suggestions = [
+        'Check your credit balance at scrapingbee.com',
+        'Purchase more credits or upgrade plan'
+      ];
+      break;
+    case 403:
+      errorInfo.possibleCauses = [
+        'Access forbidden to target URL',
+        'Target site blocking requests',
+        'Geographic restrictions'
+      ];
+      errorInfo.suggestions = [
+        'Try premium_proxy=true for better success rate',
+        'Use stealth_proxy=true for heavily protected sites',
+        'Try different country_code'
+      ];
+      break;
+    case 408:
+    case 504:
+      errorInfo.possibleCauses = [
+        'Request timed out',
+        'Target site too slow to respond',
+        'Complex JavaScript taking too long'
+      ];
+      errorInfo.suggestions = [
+        'Increase wait parameter',
+        'Use wait_for with specific selector',
+        'Try without render_js if not needed'
+      ];
+      break;
+    case 429:
+      errorInfo.possibleCauses = [
+        'Rate limit exceeded',
+        'Too many concurrent requests'
+      ];
+      errorInfo.suggestions = [
+        'Slow down request frequency',
+        'Wait before retrying',
+        'Check account rate limits'
+      ];
+      break;
+    case 500:
+      errorInfo.possibleCauses = [
+        'ScrapingBee internal server error',
+        'Target site caused server crash',
+        'Google scraping without custom_google parameter'
+      ];
+      errorInfo.suggestions = [
+        'For Google URLs, add custom_google=true',
+        'Retry request after a few seconds',
+        'Try with different proxy settings'
+      ];
+      if (url?.includes('google.')) {
+        errorInfo.suggestions.unshift('CRITICAL: Add custom_google=true for Google domains');
+      }
+      break;
+    case 502:
+    case 503:
+      errorInfo.possibleCauses = [
+        'ScrapingBee service temporarily unavailable',
+        'Target site is down',
+        'Network connectivity issues'
+      ];
+      errorInfo.suggestions = [
+        'Retry after a short delay',
+        'Check ScrapingBee status page',
+        'Verify target URL is accessible'
+      ];
+      break;
+    default:
+      errorInfo.possibleCauses = ['Unknown error occurred'];
+      errorInfo.suggestions = ['Check ScrapingBee documentation for status code ' + statusCode];
+  }
+
+  return errorInfo;
+}
+
+/**
+ * Get human-readable HTTP status text
+ */
+function getHttpStatusText(code) {
+  const statusTexts = {
+    400: 'Bad Request',
+    401: 'Unauthorized',
+    402: 'Payment Required',
+    403: 'Forbidden',
+    404: 'Not Found',
+    408: 'Request Timeout',
+    429: 'Too Many Requests',
+    500: 'Internal Server Error',
+    502: 'Bad Gateway',
+    503: 'Service Unavailable',
+    504: 'Gateway Timeout'
+  };
+  return statusTexts[code] || 'Unknown Status';
+}
+
+/**
+ * Create a detailed error response for MCP tool calls
+ */
+function createDetailedErrorResponse(error, context = {}) {
+  const errorDetails = {
+    success: false,
+    error: error.message || String(error),
+    errorType: error.name || 'Error',
+    errorCategory: error.errorCategory || 'UNKNOWN',
+    context: {
+      ...context,
+      timestamp: new Date().toISOString()
+    }
+  };
+
+  // Add stack trace for debugging (truncated)
+  if (error.stack) {
+    errorDetails.stackTrace = error.stack.split('\n').slice(0, 5).join('\n');
+  }
+
+  // Add cause chain if available
+  if (error.cause) {
+    errorDetails.cause = error.cause.message || String(error.cause);
+  }
+
+  // Include ScrapingBee-specific error details if available
+  if (error.scrapingBeeError) {
+    errorDetails.scrapingBeeError = error.scrapingBeeError;
+  }
+
+  // Include custom suggestions
+  if (error.suggestions) {
+    errorDetails.suggestions = error.suggestions;
+  } else {
+    // Generate suggestions based on error type
+    if (error.message?.includes('timeout') || error.code === 'ETIMEDOUT') {
+      errorDetails.errorCategory = 'TIMEOUT';
+      errorDetails.suggestions = ['Increase timeout', 'Check network connectivity', 'Try with simpler request'];
+    } else if (error.message?.includes('ENOTFOUND') || error.message?.includes('ECONNREFUSED')) {
+      errorDetails.errorCategory = 'NETWORK';
+      errorDetails.suggestions = ['Check internet connection', 'Verify URL is accessible', 'Check DNS resolution'];
+    } else if (error.message?.includes('JSON')) {
+      errorDetails.errorCategory = 'PARSE_ERROR';
+      errorDetails.suggestions = ['Validate JSON syntax', 'Check for special characters', 'Ensure proper escaping'];
+    } else if (error.message?.includes('API key') || error.message?.includes('api_key')) {
+      errorDetails.errorCategory = 'AUTH';
+      errorDetails.suggestions = ['Provide api_key parameter', 'Verify API key is valid'];
+    } else {
+      errorDetails.suggestions = ['Check parameters', 'Review ScrapingBee documentation', 'Contact support if issue persists'];
+    }
+  }
+
+  return errorDetails;
+}
+
 // ScrapingBee API key (can be passed via tool arguments for flexibility)
 const DEFAULT_API_KEY = process.env.SCRAPINGBEE_API_KEY || '';
 
@@ -13,7 +223,7 @@ const PROTOCOL_VERSION = '2024-11-05';
 // Server info
 const SERVER_INFO = {
   name: 'scraping-bee-mcp',
-  version: '2.0.0'
+  version: '2.1.0'
 };
 
 // Define MCP tool for ScrapingBee extract rules
@@ -211,7 +421,7 @@ async function handleJsonRpcRequest(request) {
 
     case 'tools/call': {
       const { name, arguments: args } = params || {};
-      console.log(`[MCP] Tool call: ${name}`);
+      console.log(`[MCP] Tool call: ${name}`, JSON.stringify(args || {}).substring(0, 200));
 
       try {
         let result;
@@ -230,19 +440,44 @@ async function handleJsonRpcRequest(request) {
               jsonrpc: '2.0',
               id,
               result: {
-                content: [{ type: 'text', text: `Unknown tool: ${name}` }],
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: false,
+                    error: `Unknown tool: ${name}`,
+                    errorCategory: 'INVALID_TOOL',
+                    availableTools: ['test_extract_rules', 'get_page_html', 'get_screenshot'],
+                    message: `The tool "${name}" does not exist. Available tools: test_extract_rules, get_page_html, get_screenshot`
+                  }, null, 2)
+                }],
                 isError: true
               }
             };
         }
         return { jsonrpc: '2.0', id, result };
       } catch (error) {
-        console.error(`[MCP] Tool error:`, error);
+        // Create detailed error response for unexpected errors
+        const errorDetails = createDetailedErrorResponse(error, {
+          tool: name,
+          operation: 'tools/call',
+          argsProvided: Object.keys(args || {})
+        });
+
+        console.error(`[MCP] Tool error in ${name}:`, JSON.stringify(errorDetails, null, 2));
+
         return {
           jsonrpc: '2.0',
           id,
           result: {
-            content: [{ type: 'text', text: `Error: ${error.message}` }],
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                ...errorDetails,
+                message: `Tool "${name}" failed: ${error.message}`,
+                helpUrl: 'https://www.scrapingbee.com/documentation/',
+                troubleshootingUrl: 'https://help.scrapingbee.com/en/article/what-to-do-if-my-request-fails-1jv1rmk/'
+              }, null, 2)
+            }],
             isError: true
           }
         };
@@ -359,22 +594,95 @@ async function testExtractRules(args) {
 
   const apiUrl = `https://app.scrapingbee.com/api/v1/?${queryParams.toString()}`;
 
+  // Track applied params for error context
+  const appliedParams = {
+    url,
+    hasExtractRules: true,
+    hasJsScenario: !!args.js_scenario,
+    renderJs: args.render_js,
+    wait: args.wait,
+    waitFor: args.wait_for,
+    premiumProxy: args.premium_proxy,
+    stealthProxy: args.stealth_proxy
+  };
+
   console.log(`[ScrapingBee] Calling API for URL: ${url}`);
 
-  try {
-    const response = await fetch(apiUrl);
-    const responseText = await response.text();
+  let response;
+  let responseText;
 
+  try {
+    response = await fetch(apiUrl, {
+      signal: AbortSignal.timeout(120000) // 2 minute timeout
+    });
+    responseText = await response.text();
+  } catch (fetchError) {
+    // Handle network-level errors with detailed context
+    const errorCategory = fetchError.name === 'TimeoutError' ? 'TIMEOUT' : 'NETWORK';
+    const suggestions = fetchError.name === 'TimeoutError'
+      ? [
+          'The request took longer than 2 minutes',
+          'Try with a shorter wait time',
+          'Consider simpler extract_rules',
+          'Check if target site is responsive'
+        ]
+      : [
+          'Check your internet connection',
+          'Verify ScrapingBee API is accessible',
+          'Check if there are firewall restrictions'
+        ];
+
+    console.error(`[ScrapingBee] Network error:`, fetchError.message);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: false,
+          error: `Network error: ${fetchError.message}`,
+          errorCategory,
+          errorType: fetchError.name,
+          url,
+          rules_attempted: extractRulesObj,
+          appliedParams,
+          suggestions,
+          timestamp: new Date().toISOString(),
+          helpUrl: 'https://www.scrapingbee.com/documentation/'
+        }, null, 2)
+      }],
+      isError: true
+    };
+  }
+
+  try {
     if (!response.ok) {
+      // Parse detailed error from ScrapingBee
+      const parsedError = parseScrapingBeeError(response.status, responseText, url);
+
+      // Extract ScrapingBee-specific headers if available
+      const spbCost = response.headers.get('spb-cost');
+      const spbInitialStatus = response.headers.get('spb-initial-status-code');
+      const spbResolvedUrl = response.headers.get('spb-resolved-url');
+
+      if (spbCost) parsedError.creditsCost = spbCost;
+      if (spbInitialStatus) parsedError.targetSiteStatusCode = spbInitialStatus;
+      if (spbResolvedUrl) parsedError.resolvedUrl = spbResolvedUrl;
+
+      console.error(`[ScrapingBee] API error:`, JSON.stringify(parsedError, null, 2));
+
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             success: false,
-            error: `ScrapingBee API error (${response.status})`,
-            details: responseText,
+            error: `ScrapingBee API error (HTTP ${response.status} ${parsedError.statusText})`,
+            errorCategory: 'API_ERROR',
+            scrapingBeeError: parsedError,
             url,
-            rules_attempted: extractRulesObj
+            rules_attempted: extractRulesObj,
+            appliedParams,
+            helpUrl: 'https://www.scrapingbee.com/documentation/',
+            troubleshootingUrl: 'https://help.scrapingbee.com/en/article/what-to-do-if-my-request-fails-1jv1rmk/'
           }, null, 2)
         }],
         isError: true
@@ -427,15 +735,24 @@ async function testExtractRules(args) {
       }]
     };
   } catch (error) {
+    const errorDetails = createDetailedErrorResponse(error, {
+      operation: 'testExtractRules',
+      url,
+      appliedParams
+    });
+
+    console.error(`[ScrapingBee] Unexpected error in testExtractRules:`, JSON.stringify(errorDetails, null, 2));
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          success: false,
-          error: error.message,
-          message: 'Network or API error occurred',
+          ...errorDetails,
+          message: `Extraction failed: ${error.message}`,
           url,
-          rules_attempted: extractRulesObj
+          rules_attempted: extractRulesObj,
+          helpUrl: 'https://www.scrapingbee.com/documentation/',
+          troubleshootingUrl: 'https://help.scrapingbee.com/en/article/what-to-do-if-my-request-fails-1jv1rmk/'
         }, null, 2)
       }],
       isError: true
@@ -448,12 +765,24 @@ async function getPageHtml(args) {
   const { api_key, url } = args;
 
   if (!api_key || !url) {
+    const missingParams = [];
+    if (!api_key) missingParams.push('api_key');
+    if (!url) missingParams.push('url');
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: false,
-          error: 'Missing required parameters: api_key and url'
+          error: `Missing required parameters: ${missingParams.join(', ')}`,
+          errorCategory: 'VALIDATION',
+          missingParams,
+          providedParams: Object.keys(args || {}),
+          suggestions: [
+            'Provide your ScrapingBee API key as the api_key parameter',
+            'Provide the target URL as the url parameter'
+          ],
+          timestamp: new Date().toISOString()
         }, null, 2)
       }],
       isError: true
@@ -461,6 +790,14 @@ async function getPageHtml(args) {
   }
 
   const queryParams = new URLSearchParams({ api_key, url });
+
+  const appliedParams = {
+    url,
+    renderJs: args.render_js,
+    wait: args.wait,
+    waitFor: args.wait_for,
+    premiumProxy: args.premium_proxy
+  };
 
   if (args.render_js !== undefined) queryParams.append('render_js', args.render_js.toString());
   if (args.wait !== undefined) queryParams.append('wait', args.wait.toString());
@@ -472,17 +809,54 @@ async function getPageHtml(args) {
 
   console.log(`[ScrapingBee] Fetching HTML for: ${url}`);
 
+  let response;
   try {
-    const response = await fetch(apiUrl);
+    response = await fetch(apiUrl, {
+      signal: AbortSignal.timeout(120000)
+    });
+  } catch (fetchError) {
+    const errorCategory = fetchError.name === 'TimeoutError' ? 'TIMEOUT' : 'NETWORK';
 
+    console.error(`[ScrapingBee] Network error in getPageHtml:`, fetchError.message);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: false,
+          error: `Network error: ${fetchError.message}`,
+          errorCategory,
+          errorType: fetchError.name,
+          url,
+          appliedParams,
+          suggestions: fetchError.name === 'TimeoutError'
+            ? ['Request timed out after 2 minutes', 'Try reducing wait time', 'Check if target site is responsive']
+            : ['Check your internet connection', 'Verify ScrapingBee API is accessible'],
+          timestamp: new Date().toISOString()
+        }, null, 2)
+      }],
+      isError: true
+    };
+  }
+
+  try {
     if (!response.ok) {
       const errorText = await response.text();
+      const parsedError = parseScrapingBeeError(response.status, errorText, url);
+
+      console.error(`[ScrapingBee] API error in getPageHtml:`, JSON.stringify(parsedError, null, 2));
+
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             success: false,
-            error: `ScrapingBee API error (${response.status}): ${errorText}`
+            error: `ScrapingBee API error (HTTP ${response.status} ${parsedError.statusText})`,
+            errorCategory: 'API_ERROR',
+            scrapingBeeError: parsedError,
+            url,
+            appliedParams,
+            helpUrl: 'https://www.scrapingbee.com/documentation/'
           }, null, 2)
         }],
         isError: true
@@ -509,12 +883,22 @@ async function getPageHtml(args) {
       }]
     };
   } catch (error) {
+    const errorDetails = createDetailedErrorResponse(error, {
+      operation: 'getPageHtml',
+      url,
+      appliedParams
+    });
+
+    console.error(`[ScrapingBee] Unexpected error in getPageHtml:`, JSON.stringify(errorDetails, null, 2));
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          success: false,
-          error: error.message
+          ...errorDetails,
+          message: `Failed to fetch HTML: ${error.message}`,
+          url,
+          helpUrl: 'https://www.scrapingbee.com/documentation/'
         }, null, 2)
       }],
       isError: true
@@ -527,12 +911,24 @@ async function getScreenshot(args) {
   const { api_key, url } = args;
 
   if (!api_key || !url) {
+    const missingParams = [];
+    if (!api_key) missingParams.push('api_key');
+    if (!url) missingParams.push('url');
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: false,
-          error: 'Missing required parameters: api_key and url'
+          error: `Missing required parameters: ${missingParams.join(', ')}`,
+          errorCategory: 'VALIDATION',
+          missingParams,
+          providedParams: Object.keys(args || {}),
+          suggestions: [
+            'Provide your ScrapingBee API key as the api_key parameter',
+            'Provide the target URL as the url parameter'
+          ],
+          timestamp: new Date().toISOString()
         }, null, 2)
       }],
       isError: true
@@ -545,6 +941,16 @@ async function getScreenshot(args) {
     screenshot: 'true'
   });
 
+  const appliedParams = {
+    url,
+    screenshotFullPage: args.screenshot_full_page,
+    windowWidth: args.window_width,
+    windowHeight: args.window_height,
+    wait: args.wait,
+    waitFor: args.wait_for,
+    premiumProxy: args.premium_proxy
+  };
+
   if (args.screenshot_full_page !== undefined) queryParams.append('screenshot_full_page', args.screenshot_full_page.toString());
   if (args.window_width !== undefined) queryParams.append('window_width', args.window_width.toString());
   if (args.window_height !== undefined) queryParams.append('window_height', args.window_height.toString());
@@ -556,17 +962,54 @@ async function getScreenshot(args) {
 
   console.log(`[ScrapingBee] Taking screenshot of: ${url}`);
 
+  let response;
   try {
-    const response = await fetch(apiUrl);
+    response = await fetch(apiUrl, {
+      signal: AbortSignal.timeout(120000)
+    });
+  } catch (fetchError) {
+    const errorCategory = fetchError.name === 'TimeoutError' ? 'TIMEOUT' : 'NETWORK';
 
+    console.error(`[ScrapingBee] Network error in getScreenshot:`, fetchError.message);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: false,
+          error: `Network error: ${fetchError.message}`,
+          errorCategory,
+          errorType: fetchError.name,
+          url,
+          appliedParams,
+          suggestions: fetchError.name === 'TimeoutError'
+            ? ['Request timed out after 2 minutes', 'Screenshots can take longer - try smaller window size', 'Check if target site is responsive']
+            : ['Check your internet connection', 'Verify ScrapingBee API is accessible'],
+          timestamp: new Date().toISOString()
+        }, null, 2)
+      }],
+      isError: true
+    };
+  }
+
+  try {
     if (!response.ok) {
       const errorText = await response.text();
+      const parsedError = parseScrapingBeeError(response.status, errorText, url);
+
+      console.error(`[ScrapingBee] API error in getScreenshot:`, JSON.stringify(parsedError, null, 2));
+
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             success: false,
-            error: `ScrapingBee API error (${response.status}): ${errorText}`
+            error: `ScrapingBee API error (HTTP ${response.status} ${parsedError.statusText})`,
+            errorCategory: 'API_ERROR',
+            scrapingBeeError: parsedError,
+            url,
+            appliedParams,
+            helpUrl: 'https://www.scrapingbee.com/documentation/'
           }, null, 2)
         }],
         isError: true
@@ -589,12 +1032,22 @@ async function getScreenshot(args) {
       }]
     };
   } catch (error) {
+    const errorDetails = createDetailedErrorResponse(error, {
+      operation: 'getScreenshot',
+      url,
+      appliedParams
+    });
+
+    console.error(`[ScrapingBee] Unexpected error in getScreenshot:`, JSON.stringify(errorDetails, null, 2));
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          success: false,
-          error: error.message
+          ...errorDetails,
+          message: `Failed to capture screenshot: ${error.message}`,
+          url,
+          helpUrl: 'https://www.scrapingbee.com/documentation/'
         }, null, 2)
       }],
       isError: true

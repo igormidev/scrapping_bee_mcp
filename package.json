@@ -1,6 +1,6 @@
 {
   "name": "scraping-bee-mcp",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "ScrapingBee MCP server for testing web scraping extract rules - Streamable HTTP transport",
   "main": "index.js",
   "bin": {
