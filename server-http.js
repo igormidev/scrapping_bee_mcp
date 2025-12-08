@@ -214,8 +214,9 @@ function createDetailedErrorResponse(error, context = {}) {
   return errorDetails;
 }
 
-// ScrapingBee API key (can be passed via tool arguments for flexibility)
-const DEFAULT_API_KEY = process.env.SCRAPINGBEE_API_KEY || '';
+// ScrapingBee API key - defaults to environment variable
+// The MCP is deployed privately, so the API key is configured server-side
+const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY || '';
 
 // MCP Protocol version (2025-03-26 spec)
 const PROTOCOL_VERSION = '2024-11-05';
@@ -223,21 +224,17 @@ const PROTOCOL_VERSION = '2024-11-05';
 // Server info
 const SERVER_INFO = {
   name: 'scraping-bee-mcp',
-  version: '2.1.0'
+  version: '2.2.0'
 };
 
 // Define MCP tool for ScrapingBee extract rules
 const tools = [
   {
     name: 'test_extract_rules',
-    description: 'Test web scraping extract rules using ScrapingBee API. Extracts structured data from web pages using CSS/XPath selectors. Use this to validate that your CSS selectors work correctly before implementing them in production scraping configurations.',
+    description: 'Test web scraping extract rules using ScrapingBee API. Extracts structured data from web pages using CSS/XPath selectors. Use this to validate that your CSS selectors work correctly before implementing them in production scraping configurations. API key is configured server-side.',
     inputSchema: {
       type: 'object',
       properties: {
-        api_key: {
-          type: 'string',
-          description: 'Your ScrapingBee API key'
-        },
         url: {
           type: 'string',
           description: 'The target page URL to scrape'
@@ -300,19 +297,15 @@ const tools = [
           description: 'Return response as JSON (default: true when using extract_rules)'
         }
       },
-      required: ['api_key', 'url', 'extract_rules']
+      required: ['url', 'extract_rules']
     }
   },
   {
     name: 'get_page_html',
-    description: 'Fetch the full HTML content of a web page using ScrapingBee. Useful for inspecting page structure to determine correct CSS selectors.',
+    description: 'Fetch the full HTML content of a web page using ScrapingBee. Useful for inspecting page structure to determine correct CSS selectors. API key is configured server-side.',
     inputSchema: {
       type: 'object',
       properties: {
-        api_key: {
-          type: 'string',
-          description: 'Your ScrapingBee API key'
-        },
         url: {
           type: 'string',
           description: 'The target page URL to fetch'
@@ -338,19 +331,15 @@ const tools = [
           description: 'Return the page source HTML (post-JavaScript execution)'
         }
       },
-      required: ['api_key', 'url']
+      required: ['url']
     }
   },
   {
     name: 'get_screenshot',
-    description: 'Take a screenshot of a web page using ScrapingBee. Returns base64-encoded image data. Useful for visually debugging page rendering.',
+    description: 'Take a screenshot of a web page using ScrapingBee. Returns base64-encoded image data. Useful for visually debugging page rendering. API key is configured server-side.',
     inputSchema: {
       type: 'object',
       properties: {
-        api_key: {
-          type: 'string',
-          description: 'Your ScrapingBee API key'
-        },
         url: {
           type: 'string',
           description: 'The target page URL to screenshot'
@@ -385,7 +374,7 @@ const tools = [
           description: 'Use residential proxy'
         }
       },
-      required: ['api_key', 'url']
+      required: ['url']
     }
   }
 ];
@@ -504,16 +493,17 @@ async function handleJsonRpcRequest(request) {
 
 // Test extract rules using ScrapingBee API
 async function testExtractRules(args) {
-  const { api_key, url, extract_rules } = args;
+  const { url, extract_rules } = args;
 
-  if (!api_key) {
+  // Use server-side API key from environment variable
+  if (!SCRAPINGBEE_API_KEY) {
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: false,
-          error: 'Missing required parameter: api_key',
-          message: 'You must provide your ScrapingBee API key'
+          error: 'Server configuration error: SCRAPINGBEE_API_KEY environment variable not set',
+          message: 'The MCP server is not properly configured. Contact the administrator.'
         }, null, 2)
       }],
       isError: true
@@ -571,9 +561,9 @@ async function testExtractRules(args) {
     }
   }
 
-  // Build query parameters
+  // Build query parameters using server-side API key
   const queryParams = new URLSearchParams({
-    api_key,
+    api_key: SCRAPINGBEE_API_KEY,
     url,
     extract_rules
   });
@@ -762,24 +752,33 @@ async function testExtractRules(args) {
 
 // Get page HTML
 async function getPageHtml(args) {
-  const { api_key, url } = args;
+  const { url } = args;
 
-  if (!api_key || !url) {
-    const missingParams = [];
-    if (!api_key) missingParams.push('api_key');
-    if (!url) missingParams.push('url');
-
+  // Use server-side API key from environment variable
+  if (!SCRAPINGBEE_API_KEY) {
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: false,
-          error: `Missing required parameters: ${missingParams.join(', ')}`,
+          error: 'Server configuration error: SCRAPINGBEE_API_KEY environment variable not set',
+          message: 'The MCP server is not properly configured. Contact the administrator.'
+        }, null, 2)
+      }],
+      isError: true
+    };
+  }
+
+  if (!url) {
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: false,
+          error: 'Missing required parameter: url',
           errorCategory: 'VALIDATION',
-          missingParams,
           providedParams: Object.keys(args || {}),
           suggestions: [
-            'Provide your ScrapingBee API key as the api_key parameter',
             'Provide the target URL as the url parameter'
           ],
           timestamp: new Date().toISOString()
@@ -789,7 +788,7 @@ async function getPageHtml(args) {
     };
   }
 
-  const queryParams = new URLSearchParams({ api_key, url });
+  const queryParams = new URLSearchParams({ api_key: SCRAPINGBEE_API_KEY, url });
 
   const appliedParams = {
     url,
@@ -908,24 +907,33 @@ async function getPageHtml(args) {
 
 // Get screenshot
 async function getScreenshot(args) {
-  const { api_key, url } = args;
+  const { url } = args;
 
-  if (!api_key || !url) {
-    const missingParams = [];
-    if (!api_key) missingParams.push('api_key');
-    if (!url) missingParams.push('url');
-
+  // Use server-side API key from environment variable
+  if (!SCRAPINGBEE_API_KEY) {
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: false,
-          error: `Missing required parameters: ${missingParams.join(', ')}`,
+          error: 'Server configuration error: SCRAPINGBEE_API_KEY environment variable not set',
+          message: 'The MCP server is not properly configured. Contact the administrator.'
+        }, null, 2)
+      }],
+      isError: true
+    };
+  }
+
+  if (!url) {
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: false,
+          error: 'Missing required parameter: url',
           errorCategory: 'VALIDATION',
-          missingParams,
           providedParams: Object.keys(args || {}),
           suggestions: [
-            'Provide your ScrapingBee API key as the api_key parameter',
             'Provide the target URL as the url parameter'
           ],
           timestamp: new Date().toISOString()
@@ -936,7 +944,7 @@ async function getScreenshot(args) {
   }
 
   const queryParams = new URLSearchParams({
-    api_key,
+    api_key: SCRAPINGBEE_API_KEY,
     url,
     screenshot: 'true'
   });

@@ -218,7 +218,7 @@ class ScrapingBeeMcpServer {
     this.server = new McpServer(
       {
         name: 'scraping-bee-mcp',
-        version: '2.1.0',
+        version: '2.2.0',
       },
       {
         capabilities: {
